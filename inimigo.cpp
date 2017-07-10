@@ -78,17 +78,20 @@ Inimigo::Inimigo(Ponto p, Vetor vel, double m, int vida, int t, int cooldownMax)
 		altura = 500;
 		barraVida = Barra(Ponto(385, 20), 480, 30, vida, vida, al_map_rgba(255, 0, 0, 0.8), al_map_rgb(0, 0, 0), 10, 5);
 		velocidade = Vetor(aleatorio(-100, 100), aleatorio(-100, 100)).normalizado()*moduloVelocidade;
-		timerAnimacaoAndar = Timer(0.05*9*60-1);
+		timerAnimacaoAndar = Timer(0.03*3*60-1);
 		timerAnimacaoAndar.start();
 	}
 
 	if(tipo == mariposa){
-
         largura = 75;
         altura = 50;
+        barraVida = Barra(pos, 35, 5, vida, vida, al_map_rgba(255, 255, 255, 0.8), al_map_rgb(0, 0, 0), 2, 2);
         velocidade = Vetor(aleatorio(-100, 100), aleatorio(-100, 100)).normalizado()*moduloVelocidade;
 		timerAnimacaoAndar = Timer(0.05*9*60-1);
 		timerAnimacaoAndar.start();
+		tempoMovimento = Timer(120);
+		tempoMovimento.start();
+		vaiNoPlayer = true;
 	}
 
 	verticeInicial[0] = Ponto(pos.getX()-largura/2, pos.getY()-altura/2);
@@ -154,6 +157,14 @@ void Inimigo::desenhar(bool mostrarHitbox){
 	else if(tipo == mariposa){
         al_draw_tinted_scaled_rotated_bitmap_region(spriteMariposa, timerAnimacaoAndar.getContador()/3*100, 0, 100, 100,
 			al_map_rgba_f(transparencia, transparencia, transparencia, transparencia), 50, 50, pos.getX(), pos.getY(), 1.8, 1.8, -angulo, 0);
+
+        if(!timerAnimacaoAndar.estaAtivo())
+            timerAnimacaoAndar.start();
+	}
+
+	else if(tipo == boss2){
+        al_draw_tinted_scaled_rotated_bitmap_region(spriteRobo, timerAnimacaoAndar.getContador()/2*100, 0, 100, 500,
+			al_map_rgba_f(transparencia, transparencia, transparencia, transparencia), 50, 250, pos.getX(), pos.getY(), 1.2, 1.2, angulo, 0);
 
         if(!timerAnimacaoAndar.estaAtivo())
             timerAnimacaoAndar.start();
@@ -278,7 +289,11 @@ void Inimigo::andar(Ponto posicao_player, int larguraTela, int alturaTela){
 
 	else if(tipo == mariposa){
 		if(tempoMovimento.getContador() == 1){
-			velocidade = Vetor(aleatorio(-100, 100), aleatorio(-100, 100)).normalizado()*moduloVelocidade;
+			if(vaiNoPlayer)
+				velocidade = Vetor(aleatorio(-100, 100), aleatorio(-100, 100)).normalizado()*moduloVelocidade;
+			else
+				velocidade = Vetor(pos, posicao_player).normalizado()*moduloVelocidade;
+			vaiNoPlayer = !vaiNoPlayer;
 		}
 
 		pos = pos + velocidade;
@@ -407,7 +422,7 @@ void Inimigo::atirar(Lista<Projetil>& listaProjeteisInimigos, Ponto ponto_player
 		}
 		else if(timerAtaquesBoss1.getContador() > 15*60){
 			if(timerAtaquesBoss1.getContador()%60 == 0){
-				listaInimigos.insereNoInicio(Inimigo(Ponto(pos.getX(), pos.getY()), Vetor(1, 1), 3, 10, mariposa, 180));
+				listaInimigos.insereNoInicio(Inimigo(Ponto(pos.getX(), pos.getY()), Vetor(1, 1), 3, 30, mariposa, 180));
 			}
 		}
 		else if(timerAtaquesBoss1.getContador() > 10*60){
@@ -484,11 +499,15 @@ void Inimigo::atirar(Lista<Projetil>& listaProjeteisInimigos, Ponto ponto_player
 			}
 			if(timerAtaquesBoss1.getContador()%25 == 0){
 				listaProjeteisInimigos.insereNoInicio(Projetil(centro, Vetor(-1, 0).normalizado()*10, 20, 20, circular, 100, al_map_rgb(255, 0, 155)));
+				listaProjeteisInimigos.insereNoInicio(Projetil(centro, Vetor(-1, 0).normalizado()*10, 20, 20, circular, 100, al_map_rgb(255, 0, 155)));
+				listaProjeteisInimigos.insereNoInicio(Projetil(centro, Vetor(-1, 0).normalizado()*10, 20, 20, circular, 100, al_map_rgb(255, 0, 155)));
 			}
 		}
 		else if(timerAtaquesBoss1.getContador() > 0){
 			if(timerAtaquesBoss1.getContador()%65 == 0){
-				listaInimigos.insereNoInicio(Inimigo(Ponto(pos.getX(), pos.getY()), Vetor(1, 1), 3, 10, palhaco, 180));
+				listaInimigos.insereNoInicio(Inimigo(Ponto(pos.getX(), pos.getY()), Vetor(1, 1), 20, 10, palhaco, 180));
+				listaInimigos.insereNoInicio(Inimigo(Ponto(pos.getX(), pos.getY()), Vetor(1, 1), 20, 10, palhaco, 180));
+				listaInimigos.insereNoInicio(Inimigo(Ponto(pos.getX(), pos.getY()), Vetor(1, 1), 20, 10, palhaco, 180));
 			}
 		}
 
@@ -532,6 +551,9 @@ void Inimigo::atualiza(Lista<Projetil>& listaProjeteisInimigos, Ponto ponto_play
 		case boss2:
 			barraVida.atualizar(Ponto(385, 22));
 			break;
+		case mariposa:
+			barraVida.atualizar(Ponto(pos.getX(), pos.getY()-20));
+			break;
 	}
 
 	timerAtaquesBoss1.update();
@@ -564,7 +586,7 @@ ALLEGRO_BITMAP* Inimigo::spriteAranha;
 ALLEGRO_BITMAP* Inimigo::spriteFoguinho;
 ALLEGRO_BITMAP* Inimigo::spriteMariposaBoss;
 ALLEGRO_BITMAP* Inimigo::spriteMariposa;
-
+ALLEGRO_BITMAP* Inimigo::spriteRobo;
 
 void Inimigo::initImagens(){
 	spritePalhaco = al_load_bitmap("imagens/palhaco.png");
@@ -573,7 +595,7 @@ void Inimigo::initImagens(){
 	spriteFoguinho = al_load_bitmap("imagens/foguinho.png");
 	spriteMariposaBoss = al_load_bitmap("imagens/mariposaBoss.png");
 	spriteMariposa = al_load_bitmap("imagens/mariposa.png");
-
+	spriteRobo = al_load_bitmap("imagens/robo.png");
 }
 
 void Inimigo::desenhaBarraVida(){

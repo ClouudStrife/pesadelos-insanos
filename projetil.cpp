@@ -47,6 +47,11 @@ void Projetil::desenhar(bool mostrarHitbox){
 		al_draw_filled_circle(pos.getX(), pos.getY(), largura*0.6, cor);
 	}
 	else if(tipo == retangular){
+		for(int i = 0; i < 4; i++)
+			v[i].color = al_map_rgb(0, 0, 255);
+        al_draw_prim(v, NULL, 0, 0, 4, ALLEGRO_PRIM_TRIANGLE_FAN);
+        for(int i = 0; i < 4; i++)
+			v[i].color = al_map_rgb(0, 255, 0);
         al_draw_prim(v, NULL, 0, 0, 4, ALLEGRO_PRIM_LINE_LOOP);
 	}
 	if(mostrarHitbox)

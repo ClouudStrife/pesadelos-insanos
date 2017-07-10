@@ -25,13 +25,14 @@ class Inimigo{
 		Timer timerAnimacaoAndar;
 		int sentidoRotacao;
 		ALLEGRO_VERTEX v[4];
-		static ALLEGRO_BITMAP *spritePalhaco, *spriteBp, *spriteAranha, *spriteFoguinho, *spriteMariposa, *spriteMariposaBoss;
+		static ALLEGRO_BITMAP *spritePalhaco, *spriteBp, *spriteAranha, *spriteFoguinho, *spriteMariposa, *spriteMariposaBoss, *spriteRobo;
 		double angulo;
 		Barra barraVida;
 		Timer tempoMovimento; // tipo4
 		double transparencia;
 		Timer timerAtaquesBoss1; // ataques boss 1
 		Timer timerAtaquesBoss2;
+		bool vaiNoPlayer; // mariposa
 
 	public:
 		Inimigo();

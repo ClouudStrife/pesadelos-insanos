@@ -20,10 +20,11 @@ class Player{
 		int dinheiro;
 		Timer tempoInvulnerabilidade;
 		Timer timerAnimacaoAndar;
+		Timer timerAnimacao;
 		Timer tempoRecarga;
 		ALLEGRO_VERTEX v[4];
 		double angulo;
-		static ALLEGRO_BITMAP *spritePistola, *spriteShotgun, *spriteSub, *spriteRPG;
+		static ALLEGRO_BITMAP *spritePistola, *spriteShotgun, *spriteSub, *spriteRPG, *spriteLaser, *spriteSniper, *spriteRir, *spriteChorar, *spriteNeutro;
 
 
 	public:

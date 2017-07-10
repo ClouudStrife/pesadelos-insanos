@@ -29,7 +29,7 @@ enum teclas{A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W,
 
 enum mouseBotoes{M1, M2, M3};
 
-enum estados{menu, instrucoes, jogando, loja, gameOver};
+enum estados{menu, instrucoes, jogando, loja, gameOver, win};
 
 enum inimigos{aranha, bp, palhaco, mariposa, foguinho, boss1, boss2};
 

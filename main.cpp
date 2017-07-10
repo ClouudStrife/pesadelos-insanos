@@ -8,20 +8,22 @@
 #include "lista.h"
 
 #define preco_pistola 0
-#define preco_shotgun 1
-#define preco_sub 2
-#define preco_rpg 25
-#define preco_sniper 3
-#define preco_laser 1
-#define preco_vida 1
-#define preco_velocidade 1
-#define preco_kit 5
+#define preco_shotgun 55
+#define preco_sub 120
+#define preco_rpg 200
+#define preco_sniper 200
+#define preco_laser 400
+#define preco_vida 120
+#define preco_velocidade 70
+#define preco_kit 70
 
 bool colisao(Player p, Projetil b);
 bool colisao(Player p, Inimigo b);
 bool colisao(Inimigo p, Projetil& b);
 
-void spawnarInimigo(Lista<Inimigo>& listaInimigos, int tipo, int larguraTela, int alturaTela);
+void spawnarInimigo(Lista<Inimigo>& listaInimigos, int tipo, int larguraTela, int alturaTela, int vida, double velocidade, int cooldown);
+
+void atualizaWave(int& wave, Timer& timerWave, Lista<Inimigo>& listaInimigos, int larguraTela, int alturaTela);
 
 int main(){
 	int largura = 960;
@@ -34,6 +36,13 @@ int main(){
 	bool mostrarHitboxInimigos = false;
 	bool mostrarHitboxPlayer = false;
 	bool mostrarHitboxProjeteis = false;
+	int wave = 1;
+	Timer timerWave(35*60);
+	timerWave.start();
+	Timer timerExplosao(3);
+	int xExplosao, yExplosao;
+	bool explosao = false;
+	bool cheat = false;
 
 	Lista<Projetil> listaProjeteisPlayer;
 	Lista<Projetil> listaProjeteisInimigos;
@@ -58,6 +67,7 @@ int main(){
 	ALLEGRO_BITMAP *fundoJogo;
 	ALLEGRO_BITMAP *fundoLoja;
 	ALLEGRO_BITMAP *fundoGameOver;
+	ALLEGRO_BITMAP *fundoWin;
 
 	ALLEGRO_BITMAP *img_comprar;
 	ALLEGRO_BITMAP *img_usar;
@@ -72,7 +82,9 @@ int main(){
 	ALLEGRO_DISPLAY *tela = NULL;
 	ALLEGRO_EVENT_QUEUE *filaEventos = NULL;
 	ALLEGRO_TIMER *timer = NULL;
-	ALLEGRO_FONT *arial24 = NULL;
+	ALLEGRO_FONT *fonte = NULL;
+
+	ALLEGRO_AUDIO_STREAM *musicaFundo = NULL;
 
 	srand(time(NULL));
 
@@ -93,7 +105,7 @@ int main(){
 	tela = al_create_display(largura, altura);
 	timer = al_create_timer(1.0 / fps);
 	filaEventos = al_create_event_queue();
-	arial24 = al_load_font("fonts/arial.ttf", 24, 0);
+	fonte = al_load_font("fonts/small_pixel.ttf", 24, 0);
 
 	coracaoCheio = al_load_bitmap("imagens/coracao_cheio.png");
 	coracaoMetade = al_load_bitmap("imagens/coracao_metade.png");
@@ -109,6 +121,8 @@ int main(){
 	img_comprar = al_load_bitmap("imagens/btn_comprar.png");
 	img_usar = al_load_bitmap("imagens/btn_usar.png");
 	img_max = al_load_bitmap("imagens/btn_max.png");
+
+	musicaFundo = al_load_audio_stream("music/Musica_jogo_3.ogg", 4, 1024);
 
 	al_register_event_source(filaEventos, al_get_display_event_source(tela));
 	al_register_event_source(filaEventos, al_get_keyboard_event_source());
@@ -132,17 +146,25 @@ int main(){
 
 	Botao botaoJogar(572, 177, "imagens/botaoJogar.png");
 	Botao botaoSair(572, 238, "imagens/botaoSair.png");
+	Botao btn_n(506, 444, "imagens/btn_n.png");
+	Botao btn_s(506, 411, "imagens/btn_s.png");
 
 	fundoMenu = al_load_bitmap("imagens/menu.png");
 	frescura = al_load_bitmap("imagens/ola.png");
 	fundoJogo = al_load_bitmap("imagens/sad.png");
 	fundoLoja = al_load_bitmap("imagens/esboco_1.png");
 	fundoGameOver = al_load_bitmap("imagens/gameOver.png");
+	fundoWin = al_load_bitmap("imagens/win.png");
 
 	al_start_timer(timer);
 
 	while(!acabou){
 		if(estado == menu){
+
+            al_attach_audio_stream_to_mixer(musicaFundo, al_get_default_mixer());
+            al_set_audio_stream_playing(musicaFundo, true);
+
+
 			ALLEGRO_EVENT evento;
 			al_wait_for_event(filaEventos, &evento);
 
@@ -185,11 +207,18 @@ int main(){
 			al_wait_for_event(filaEventos, &evento);
 
 			if(evento.type == ALLEGRO_EVENT_TIMER){
+
+                if(wave == 11){
+                    estado = win;
+                }
+
+				atualizaWave(wave, timerWave, listaInimigos, largura-200, altura);
+				timerExplosao.update();
+
 				// atualiza player
 				player.andar(tecla[W]||tecla[UP], tecla[S]||tecla[DOWN], tecla[A]||tecla[LEFT], tecla[D]||tecla[RIGHT], largura-200, altura, mouse);
 				player.atualizaAngulo(mouse);
 				player.atualizaTimers();
-				// player.atualizaTempoRecarga(); // ttttttttttttttt
 
 				if(mouseBotao[M1])
 					player.atirar(listaProjeteisPlayer, mouse, false);
@@ -245,14 +274,38 @@ int main(){
 				for(int i = 0; i < listaInimigos.getTam(); i++){
 					for(int j = 0; j < listaProjeteisPlayer.getTam(); j++){
 						if(colisao(listaInimigos[i], listaProjeteisPlayer[j])){
-							listaInimigos[i].recebeDano(listaProjeteisPlayer[j].getDano());
-							listaProjeteisPlayer.remove(j);
-							j--;
+							if(player.getArma() == rpg){
+								timerExplosao.start();
+								xExplosao = listaProjeteisPlayer[j].getPos().getX();
+								yExplosao = listaProjeteisPlayer[j].getPos().getY();
+								explosao = true;
+								listaProjeteisPlayer.remove(j);
+								j--;
+							}else{
+								listaInimigos[i].recebeDano(listaProjeteisPlayer[j].getDano());
+								listaProjeteisPlayer.remove(j);
+								j--;
+								if(listaInimigos[i].getVida() <= 0){
+									listaInimigos.remove(i);
+									player.setDinheiro(player.getDinheiro() + 5);
+									i--;
+									break;
+								}
+							}
+
+						}
+					}
+				}
+
+				if(explosao){
+					explosao = false;
+					for(int i = 0; i < listaInimigos.getTam(); i++){
+						if(distancia(Ponto(xExplosao, yExplosao), listaInimigos[i].getPos()) < 100){
+							listaInimigos[i].recebeDano(12);
 							if(listaInimigos[i].getVida() <= 0){
 								listaInimigos.remove(i);
 								player.setDinheiro(player.getDinheiro() + 5);
 								i--;
-								break;
 							}
 						}
 					}
@@ -282,6 +335,9 @@ int main(){
 						break;
 				}
 
+				if(timerExplosao.estaAtivo())
+					al_draw_filled_circle(xExplosao, yExplosao, 40, al_map_rgb(255, 255, 255));
+
 				for(int i = 0; i < listaProjeteisPlayer.getTam(); i++){
 					listaProjeteisPlayer[i].desenhar(mostrarHitboxProjeteis);
 				}
@@ -295,7 +351,9 @@ int main(){
 					listaProjeteisInimigos[i].desenhar(mostrarHitboxProjeteis);
 				}
 
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 824, 86, 0, "%d", player.getDinheiro());
+
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 824, 86, 0, "$ %d", player.getDinheiro());
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 900, 25, 0, "%d", wave);
 
 				player.desenhar(tecla[W] || tecla[UP] || tecla[S] || tecla[DOWN] || tecla[A]||tecla[LEFT]|| tecla[D]||tecla[RIGHT], mostrarHitboxPlayer);
 
@@ -342,16 +400,20 @@ int main(){
 						tecla[D] = true;
 						break;
 					case ALLEGRO_KEY_I:
-						spawnarInimigo(listaInimigos, aranha, largura-200, altura);
+						if(cheat)
+							spawnarInimigo(listaInimigos, aranha, largura-200, altura, 5, 2, 180);
 						break;
 					case ALLEGRO_KEY_O:
-						spawnarInimigo(listaInimigos, bp, largura-200, altura);
+						if(cheat)
+							spawnarInimigo(listaInimigos, bp, largura-200, altura, 14, 2, 180);
 						break;
 					case ALLEGRO_KEY_P:
-						spawnarInimigo(listaInimigos, palhaco, largura-200, altura);
+						if(cheat)
+							spawnarInimigo(listaInimigos, palhaco, largura-200, altura, 20, 2, 180);
 						break;
 					case ALLEGRO_KEY_U:
-						spawnarInimigo(listaInimigos, foguinho, largura-200, altura);
+						if(cheat)
+							spawnarInimigo(listaInimigos, foguinho, largura-200, altura, 26, 2, 180);
 						break;
                     case ALLEGRO_KEY_L:
                         estado = loja;
@@ -362,18 +424,41 @@ int main(){
                     	player.atirar(listaProjeteisPlayer, mouse, true);
                     	break;
                     case ALLEGRO_KEY_X:
-                    	mostrarHitboxInimigos = !mostrarHitboxInimigos;
-                    	mostrarHitboxPlayer = !mostrarHitboxPlayer;
-                    	mostrarHitboxProjeteis = !mostrarHitboxProjeteis;
+                    	if(cheat){
+                    		mostrarHitboxInimigos = !mostrarHitboxInimigos;
+                    		mostrarHitboxPlayer = !mostrarHitboxPlayer;
+                    		mostrarHitboxProjeteis = !mostrarHitboxProjeteis;
+						}
                     	tecla[X] = true;
                     	break;
                     case ALLEGRO_KEY_B:
-                    	listaInimigos.insereNoInicio(Inimigo(Ponto(100, 100), Vetor(1, 1), 3, 1000, boss1, 1));
+                    	if(cheat)
+                    		spawnarInimigo(listaInimigos, boss1, largura-200, altura, 719, 2, 1);
                     	break;
                     case ALLEGRO_KEY_V:
                     	break;
                     case ALLEGRO_KEY_N:
-                    	listaInimigos.insereNoInicio(Inimigo(Ponto(780, 270), Vetor(-1, 0), 0.3, 1000, boss2, 1));
+                    	if(cheat)
+                    		spawnarInimigo(listaInimigos, boss2, largura, altura-200, 1500, 0.3, 1);
+                    	break;
+                    case ALLEGRO_KEY_LCTRL:
+                    	tecla[LCTRL] = true;
+                    	break;
+                    case ALLEGRO_KEY_LSHIFT:
+                    	tecla[LSHIFT] = true;
+                    	break;
+                    case ALLEGRO_KEY_Q:
+                    	if(tecla[LCTRL] && tecla[LSHIFT])
+                    		cheat = !cheat;
+                    	break;
+                    case ALLEGRO_KEY_C:
+                    	if(cheat)
+                    		player.setDinheiro(player.getDinheiro()+100);
+                    	break;
+                    case ALLEGRO_KEY_H:
+                    	if(cheat)
+                    		player.setVida(player.getVidaMax());
+                    	break;
 				}
 			}
 			else if(evento.type == ALLEGRO_EVENT_KEY_UP){
@@ -404,6 +489,12 @@ int main(){
 						break;
 					case ALLEGRO_KEY_X:
                     	tecla[X] = false;
+                    	break;
+                    case ALLEGRO_KEY_LCTRL:
+                    	tecla[LCTRL] = false;
+                    	break;
+                    case ALLEGRO_KEY_LSHIFT:
+                    	tecla[LSHIFT] = false;
                     	break;
 				}
 			}
@@ -493,15 +584,15 @@ int main(){
 					al_draw_scaled_bitmap(coracaoMetade, 0, 0, 80, 68, 780+i*90*0.35, 340, 80*0.35, 68*0.35, 0);
 				}
 
-				al_draw_text(arial24, al_map_rgb(255,255,255), 200, 107, 0, "FREE");
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 450, 107, 0, "%d", preco_shotgun);
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 700, 107, 0, "%d", preco_sub);
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 200, 260, 0, "%d", preco_rpg);
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 450, 260, 0, "%d", preco_sniper);
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 700, 260, 0, "%d", preco_laser);
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 200, 416, 0, "%d", preco_vida);
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 450, 416, 0, "%d", preco_velocidade);
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 700, 416, 0, "%d", preco_kit);
+				al_draw_text(fonte, al_map_rgb(255,255,255), 200, 107, 0, "FREE");
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 450, 107, 0, "%d", preco_shotgun);
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 700, 107, 0, "%d", preco_sub);
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 200, 260, 0, "%d", preco_rpg);
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 450, 260, 0, "%d", preco_sniper);
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 700, 260, 0, "%d", preco_laser);
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 200, 416, 0, "%d", preco_vida);
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 450, 416, 0, "%d", preco_velocidade);
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 700, 416, 0, "%d", preco_kit);
 
 				btnComprarPistola.desenhar();
 				btnComprarShotgun.desenhar();
@@ -513,7 +604,8 @@ int main(){
 				btnComprarVelocidade.desenhar();
 				btnComprarMedicamento.desenhar();
 
-				al_draw_textf(arial24, al_map_rgb(255,255,255), 824, 86, 0, "%d", player.getDinheiro());
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 824, 86, 0, "%d", player.getDinheiro());
+				al_draw_textf(fonte, al_map_rgb(255,255,255), 900, 25, 0, "%d", wave);
 
 				al_flip_display();
 				al_clear_to_color(al_map_rgb(0, 0, 0));
@@ -627,14 +719,16 @@ int main(){
 					else if(btnComprarVelocidade.estaSelecionado()){
                         if(player.getVelocidade() < 5){
                             if(player.getDinheiro() >= preco_velocidade){
-                            player.setDinheiro(player.getDinheiro() - preco_velocidade);
-                            player.setVelocidade(player.getVelocidade() + 0.5);
+                            	player.setDinheiro(player.getDinheiro() - preco_velocidade);
+                            	player.setVelocidade(player.getVelocidade() + 0.5);
+                            	if(player.getVelocidade() >= 5){
+									btnComprarVida.setImagem(img_max);
+								}
                             }else{
                                 cout << "dinheiro insuficiente" << endl;
                             }
                         }
                         else{
-
                             btnComprarVelocidade.setImagem(img_max);
                             cout << "ja esta no maximo" << endl;
                         }
@@ -684,8 +778,120 @@ int main(){
 		}// fim loja
 
         else if(estado == gameOver){
-            al_draw_bitmap(fundoGameOver, 0, 0, 0);
-            al_flip_display();
+            ALLEGRO_EVENT evento;
+			al_wait_for_event(filaEventos, &evento);
+
+			if(evento.type == ALLEGRO_EVENT_TIMER){
+                al_draw_bitmap(fundoGameOver, 0, 0, 0);
+
+
+                btn_n.atualiza(mouse.getX(), mouse.getY());
+                btn_s.atualiza(mouse.getX(), mouse.getY());
+
+                btn_n.desenhar();
+                btn_s.desenhar();
+
+                al_flip_display();
+			}
+
+			else if(evento.type == ALLEGRO_EVENT_MOUSE_AXES){
+                    mouse.setX(evento.mouse.x / sx);
+                    mouse.setY(evento.mouse.y / sy);
+            }
+
+            else if(evento.type == ALLEGRO_EVENT_MOUSE_BUTTON_DOWN){
+                if(evento.mouse.button == 1){
+                    if(btn_s.estaSelecionado()){
+                        acabou = true;
+                    }
+                    else if (btn_n.estaSelecionado()){
+
+
+                        for(int i = 0; i < N_MOUSE_BOTOES; i++){
+                            mouseBotao[i] = false;
+                        }
+
+                        while(!listaInimigos.vazia()){
+                            listaInimigos.removePrimeiro();
+                        }
+
+                        while(!listaProjeteisInimigos.vazia()){
+                            listaProjeteisInimigos.removePrimeiro();
+                        }
+
+                        while(!listaProjeteisPlayer.vazia()){
+                            listaProjeteisPlayer.removePrimeiro();
+                        }
+
+
+                        player = Player(Ponto(300, 300), 2.5, 13, 30, 6, 0, 0);
+                        player.init();
+
+                        timerWave.reset();
+                        wave = 1;
+                        estado = jogando;
+                    }
+                }
+            }
+
+        }
+
+        else if (estado == win){
+
+
+            ALLEGRO_EVENT evento;
+			al_wait_for_event(filaEventos, &evento);
+
+			if(evento.type == ALLEGRO_EVENT_TIMER){
+                al_draw_bitmap(fundoWin, 0, 0, 0);
+
+
+                btn_n.atualiza(mouse.getX(), mouse.getY());
+                btn_s.atualiza(mouse.getX(), mouse.getY());
+
+                btn_n.desenhar();
+                btn_s.desenhar();
+
+                al_flip_display();
+			}
+
+			else if(evento.type == ALLEGRO_EVENT_MOUSE_AXES){
+                    mouse.setX(evento.mouse.x / sx);
+                    mouse.setY(evento.mouse.y / sy);
+            }
+
+            else if(evento.type == ALLEGRO_EVENT_MOUSE_BUTTON_DOWN){
+                if(evento.mouse.button == 1){
+                    if(btn_s.estaSelecionado()){
+
+                        for(int i = 0; i < N_MOUSE_BOTOES; i++){
+                            mouseBotao[i] = false;
+                        }
+
+                        while(!listaInimigos.vazia()){
+                            listaInimigos.removePrimeiro();
+                        }
+
+                        while(!listaProjeteisInimigos.vazia()){
+                            listaProjeteisInimigos.removePrimeiro();
+                        }
+
+                        while(!listaProjeteisPlayer.vazia()){
+                            listaProjeteisPlayer.removePrimeiro();
+                        }
+
+
+                        player = Player(Ponto(300, 300), 2.5, 13, 30, 6, 0, 0);
+                        player.init();
+
+                        timerWave.reset();
+                        estado = jogando;
+                    }
+                    else if (btn_n.estaSelecionado()){
+                        acabou = true;
+                    }
+                }
+            }
 
         }
 	}
@@ -819,7 +1025,7 @@ bool colisao(Inimigo p, Projetil& b){
 
 
 
-void spawnarInimigo(Lista<Inimigo>& listaInimigos, int tipo, int larguraTela, int alturaTela){
+void spawnarInimigo(Lista<Inimigo>& listaInimigos, int tipo, int larguraTela, int alturaTela, int vida, double velocidade, int cooldown){
 	int x, y;
 	switch(aleatorio(0, 3)){
 		case 0:
@@ -841,16 +1047,1016 @@ void spawnarInimigo(Lista<Inimigo>& listaInimigos, int tipo, int larguraTela, in
 	}
 	switch(tipo){
 		case palhaco:
-			listaInimigos.insereNoInicio(Inimigo(Ponto(x, y), Vetor(1, 1), 2.5, 35, palhaco, 180));
+			listaInimigos.insereNoInicio(Inimigo(Ponto(x, y), Vetor(1, 1), velocidade, vida, palhaco, cooldown));
 			break;
 		case bp:
-			listaInimigos.insereNoInicio(Inimigo(Ponto(x, y), Vetor(1, 1), 2, 40, bp, 180));
+			listaInimigos.insereNoInicio(Inimigo(Ponto(x, y), Vetor(1, 1), velocidade, vida, bp, cooldown));
 			break;
 		case aranha:
-			listaInimigos.insereNoInicio(Inimigo(Ponto(x, y), Vetor(1, 1), 3, 20, aranha, 180));
+			listaInimigos.insereNoInicio(Inimigo(Ponto(x, y), Vetor(1, 1), velocidade, vida, aranha, cooldown));
 			break;
 		case foguinho:
-			listaInimigos.insereNoInicio(Inimigo(Ponto(x, y), Vetor(1, 1), 2.5, 20, foguinho, 180));
+			listaInimigos.insereNoInicio(Inimigo(Ponto(x, y), Vetor(1, 1), velocidade, vida, foguinho, cooldown));
+			break;
+		case mariposa:
+			listaInimigos.insereNoInicio(Inimigo(Ponto(x, y), Vetor(1, 1), velocidade, vida, mariposa, cooldown));
+			break;
+		case boss1:
+			listaInimigos.insereNoInicio(Inimigo(Ponto(0, 0), Vetor(1, 1), velocidade, vida, boss1, cooldown));
+			break;
+		case boss2:
+			listaInimigos.insereNoInicio(Inimigo(Ponto(780, 270), Vetor(-1, 0), velocidade, vida, boss2, cooldown));
+			break;
+	}
+}
+
+void atualizaWave(int& wave, Timer& timerWave, Lista<Inimigo>& listaInimigos, int larguraTela, int alturaTela){
+	timerWave.update();
+	switch(wave){
+		case 1:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 30*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 29*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 28*60:
+					break;
+				case 27*60:
+					break;
+				case 26*60:
+					break;
+				case 25*60:
+					break;
+				case 24*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 23*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 22*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 21*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 20*60:
+					break;
+				case 19*60:
+					break;
+				case 18*60:
+					break;
+				case 17*60:
+					break;
+				case 16*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 15*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 14*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 13*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 12*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 11*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 10*60:
+					break;
+				case 9*60:
+					break;
+				case 8*60:
+					break;
+				case 7*60:
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					break;
+				case 4*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 3*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 2*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 1*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
+			break;
+		case 2:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					break;
+				case 30*60:
+					break;
+				case 29*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 28*60:
+					break;
+				case 27*60:
+					break;
+				case 26*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 25*60:
+					break;
+				case 24*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 23*60:
+					break;
+				case 22*60:
+					break;
+				case 21*60:
+					break;
+				case 20*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 19*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 18*60:
+					break;
+				case 17*60:
+					break;
+				case 16*60:
+					break;
+				case 15*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 14*60:
+					break;
+				case 13*60:
+					break;
+				case 12*60:
+					break;
+				case 11*60:
+					break;
+				case 10*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 9*60:
+					break;
+				case 8*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 7*60:
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					break;
+				case 4*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 3*60:
+					break;
+				case 2*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 1*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
+			break;
+		case 3:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					break;
+				case 30*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 29*60:
+					break;
+				case 28*60:
+					break;
+				case 27*60:
+					break;
+				case 26*60:
+					break;
+				case 25*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 24*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 23*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 22*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 21*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 20*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 19*60:
+					break;
+				case 18*60:
+					break;
+				case 17*60:
+					break;
+				case 16*60:
+					break;
+				case 15*60:
+					break;
+				case 14*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 13*60:
+					break;
+				case 12*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 11*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 10*60:
+					break;
+				case 9*60:
+					break;
+				case 8*60:
+					break;
+				case 7*60:
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 4*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 3*60:
+					break;
+				case 2*60:
+					break;
+				case 1*60:
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
+			break;
+		case 4:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					break;
+				case 30*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 29*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 28*60:
+					break;
+				case 27*60:
+					break;
+				case 26*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 25*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 24*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 23*60:
+					break;
+				case 22*60:
+					break;
+				case 21*60:
+					break;
+				case 20*60:
+					break;
+				case 19*60:
+					break;
+				case 18*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 17*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 16*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 15*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 14*60:
+					break;
+				case 13*60:
+					break;
+				case 12*60:
+					break;
+				case 11*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 10*60:
+					break;
+				case 9*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 8*60:
+					break;
+				case 7*60:
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					break;
+				case 4*60:
+					break;
+				case 3*60:
+					break;
+				case 2*60:
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 1*60:
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
+			break;
+		case 5:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					break;
+				case 30*60:
+					spawnarInimigo(listaInimigos, boss1, larguraTela, alturaTela, 719, 2, 1);
+					break;
+				case 29*60:
+					break;
+				case 28*60:
+					break;
+				case 27*60:
+					break;
+				case 26*60:
+					break;
+				case 25*60:
+					break;
+				case 24*60:
+					break;
+				case 23*60:
+					break;
+				case 22*60:
+					break;
+				case 21*60:
+					break;
+				case 20*60:
+					break;
+				case 19*60:
+					break;
+				case 18*60:
+					break;
+				case 17*60:
+					break;
+				case 16*60:
+					break;
+				case 15*60:
+					break;
+				case 14*60:
+					break;
+				case 13*60:
+					break;
+				case 12*60:
+					break;
+				case 11*60:
+					break;
+				case 10*60:
+					break;
+				case 9*60:
+					break;
+				case 8*60:
+					break;
+				case 7*60:
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					break;
+				case 4*60:
+					break;
+				case 3*60:
+					break;
+				case 2*60:
+					break;
+				case 1*60:
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
+			break;
+		case 6:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 30*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 29*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 28*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 27*60:
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 26*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 25*60:
+					break;
+				case 24*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 23*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 22*60:
+					break;
+				case 21*60:
+					break;
+				case 20*60:
+					break;
+				case 19*60:
+					break;
+				case 18*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 17*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 16*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 15*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 14*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 13*60:
+					break;
+				case 12*60:
+					break;
+				case 11*60:
+					break;
+				case 10*60:
+					break;
+				case 9*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 8*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					break;
+				case 7*60:
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 4*60:
+					break;
+				case 3*60:
+					break;
+				case 2*60:
+					break;
+				case 1*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
+			break;
+		case 7:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 30*60:
+					break;
+				case 29*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 28*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 27*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 26*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 25*60:
+					break;
+				case 24*60:
+					break;
+				case 23*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 22*60:
+					break;
+				case 21*60:
+					break;
+				case 20*60:
+					break;
+				case 19*60:
+					break;
+				case 18*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 17*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+				case 16*60:
+					break;
+				case 15*60:
+					break;
+				case 14*60:
+					break;
+				case 13*60:
+					break;
+				case 12*60:
+					break;
+				case 11*60:
+					break;
+				case 10*60:
+					break;
+				case 9*60:
+					break;
+				case 8*60:
+					break;
+				case 7*60:
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					break;
+				case 4*60:
+					break;
+				case 3*60:
+					break;
+				case 2*60:
+					break;
+				case 1*60:
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
+			break;
+		case 8:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					break;
+				case 30*60:
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 29*60:
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 28*60:
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 27*60:
+					break;
+				case 26*60:
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 25*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 24*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 23*60:
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 22*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 21*60:
+					break;
+				case 20*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 19*60:
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 18*60:
+					break;
+				case 17*60:
+					break;
+				case 16*60:
+					break;
+				case 15*60:
+					break;
+				case 14*60:
+					break;
+				case 13*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 12*60:
+					break;
+				case 11*60:
+					break;
+				case 10*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 9*60:
+					break;
+				case 8*60:
+					break;
+				case 7*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					break;
+				case 4*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 3*60:
+					break;
+				case 2*60:
+					break;
+				case 1*60:
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
+			break;
+		case 9:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					break;
+				case 30*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 29*60:
+					break;
+				case 28*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 27*60:
+					break;
+				case 26*60:
+					break;
+				case 25*60:
+					break;
+				case 24*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 23*60:
+					break;
+				case 22*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 21*60:
+					break;
+				case 20*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 19*60:
+					break;
+				case 18*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 17*60:
+					break;
+				case 16*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 15*60:
+					break;
+				case 14*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					break;
+				case 13*60:
+					break;
+				case 12*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 11*60:
+					break;
+				case 10*60:
+					break;
+				case 9*60:
+					break;
+				case 8*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					spawnarInimigo(listaInimigos, foguinho, larguraTela, alturaTela, 26, 2, 180);
+					spawnarInimigo(listaInimigos, mariposa, larguraTela, alturaTela, 40, 2, 180);
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+				case 7*60:
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, aranha, larguraTela, alturaTela, 5, 2, 180);
+					break;
+				case 4*60:
+					break;
+				case 3*60:
+					break;
+				case 2*60:
+					break;
+				case 1*60:
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					spawnarInimigo(listaInimigos, bp, larguraTela, alturaTela, 14, 2, 180);
+					spawnarInimigo(listaInimigos, palhaco, larguraTela, alturaTela, 20, 2, 180);
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
+			break;
+		case 10:
+			switch(timerWave.getContador()){
+				case 34*60:
+					break;
+				case 33*60:
+					break;
+				case 32*60:
+					break;
+				case 31*60:
+					spawnarInimigo(listaInimigos, boss2, larguraTela, alturaTela, 1500, 0.3, 1);
+					break;
+				case 30*60:
+					break;
+				case 29*60:
+					break;
+				case 28*60:
+					break;
+				case 27*60:
+					break;
+				case 26*60:
+					break;
+				case 25*60:
+					break;
+				case 24*60:
+					break;
+				case 23*60:
+					break;
+				case 22*60:
+					break;
+				case 21*60:
+					break;
+				case 20*60:
+					break;
+				case 19*60:
+					break;
+				case 18*60:
+					break;
+				case 17*60:
+					break;
+				case 16*60:
+					break;
+				case 15*60:
+					break;
+				case 14*60:
+					break;
+				case 13*60:
+					break;
+				case 12*60:
+					break;
+				case 11*60:
+					break;
+				case 10*60:
+					break;
+				case 9*60:
+					break;
+				case 8*60:
+					break;
+				case 7*60:
+					break;
+				case 6*60:
+					break;
+				case 5*60:
+					break;
+				case 4*60:
+					break;
+				case 3*60:
+					break;
+				case 2*60:
+					break;
+				case 1*60:
+					break;
+			}
+			if(!timerWave.estaAtivo() && listaInimigos.vazia()){
+				timerWave.setMaximo(35*60);
+				timerWave.start();
+				wave++;
+			}
 			break;
 	}
 }
